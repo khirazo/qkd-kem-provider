@@ -2,8 +2,6 @@
  * Copyright (C) 2024 Javier Blanco-Romero @fj-blanco (UC3M, QURSA project)
  */
 
-/* This file includes AI-generated code - Review and modify as needed */
-
 /*
  * oqs_qkd_ctx.c
  * QKD context initialization
@@ -36,54 +34,6 @@
 #endif
 #endif // NDEBUG
 
-/**
- * Helper function to get environment variable with fallback support
- */
-static const char* get_env_with_fallback(
-    const char *new_var,
-    const char *old_var1,
-    const char *old_var2,
-    bool *used_deprecated
-) {
-    const char *value = getenv(new_var);
-    if (value) {
-        return value;
-    }
-    
-    value = getenv(old_var1);
-    if (value) {
-        *used_deprecated = true;
-        return value;
-    }
-    
-    if (old_var2) {
-        value = getenv(old_var2);
-        if (value) {
-            *used_deprecated = true;
-            return value;
-        }
-    }
-    
-    return NULL;
-}
-
-/**
- * Print deprecation warning once per process
- */
-static void print_deprecation_warning_once(void) {
-    static bool warning_printed = false;
-    if (!warning_printed) {
-        fprintf(stderr,
-            "WARNING: QKD_MASTER_*/QKD_SLAVE_* environment variables are deprecated.\n"
-            "         Please migrate to QKD_MY_* variables.\n"
-            "         See qkd-kem-provider/docs/ARCHITECTURE-REFACTORING.md for details.\n");
-        warning_printed = true;
-    }
-}
-
-/**
- * Initialize QKD URIs and identifiers from environment variables
- */
 static int qkd_init_uris(QKD_CTX *ctx) {
     if (!ctx) {
         QKD_DEBUG("Invalid context");
@@ -91,7 +41,7 @@ static int qkd_init_uris(QKD_CTX *ctx) {
     }
 
 #ifdef ETSI_004_API
-    // ETSI 004: Use direct URIs (no change needed)
+
     const char *source_uri = getenv("QKD_SOURCE_URI");
     const char *dest_uri = getenv("QKD_DEST_URI");
 
@@ -100,9 +50,10 @@ static int qkd_init_uris(QKD_CTX *ctx) {
         return OQS_ERROR;
     }
 
-    QKD_DEBUG("ETSI 004: Using URIs from environment: source=%s, dest=%s",
+    QKD_DEBUG("ETSI 004: Using URIs from environment: source=%s, dest=%s", 
               source_uri, dest_uri);
 
+    // Store the URIs directly
     ctx->source_uri = OPENSSL_strdup(source_uri);
     ctx->dest_uri = OPENSSL_strdup(dest_uri);
 
@@ -112,92 +63,63 @@ static int qkd_init_uris(QKD_CTX *ctx) {
     }
 
 #else
-    // ETSI 014: Use new MY_*/PEER_* variables with fallback
-    bool used_deprecated = false;
-    
-    // Load MY_KME_HOSTNAME
-    const char *my_kme = get_env_with_fallback(
-        "QKD_MY_KME_HOSTNAME",
-        "QKD_MASTER_KME_HOSTNAME",
-        "QKD_SLAVE_KME_HOSTNAME",
-        &used_deprecated
-    );
-    
-    // Load MY_SAE_ID
-    const char *my_sae = get_env_with_fallback(
-        "QKD_MY_SAE_ID",
-        "QKD_MASTER_SAE",
-        "QKD_SLAVE_SAE",
-        &used_deprecated
-    );
-    
-    // Load PEER_SAE_ID
-    const char *peer_sae = get_env_with_fallback(
-        "QKD_PEER_SAE_ID",
-        ctx->is_initiator ? "QKD_SLAVE_SAE" : "QKD_MASTER_SAE",
-        NULL,
-        &used_deprecated
-    );
-    
-    // Print deprecation warning if needed
-    if (used_deprecated) {
-        print_deprecation_warning_once();
-    }
-    
-    // Validate required variables
-    if (!my_kme || !my_sae || !peer_sae) {
+    // For ETSI 014, use the hostname-based environment variables
+    const char *master_kme = getenv("QKD_MASTER_KME_HOSTNAME");
+    const char *slave_kme = getenv("QKD_SLAVE_KME_HOSTNAME");
+    const char *master_sae = getenv("QKD_MASTER_SAE");
+    const char *slave_sae = getenv("QKD_SLAVE_SAE");
+
+    if (!master_kme || !slave_kme || !master_sae || !slave_sae) {
         QKD_DEBUG("ETSI 014: Required environment variables not set");
-        QKD_DEBUG("Required: QKD_MY_KME_HOSTNAME, QKD_MY_SAE_ID, QKD_PEER_SAE_ID");
         return OQS_ERROR;
     }
 
-    QKD_DEBUG("ETSI 014: Using configuration: my_kme=%s, my_sae=%s, peer_sae=%s",
-              my_kme, my_sae, peer_sae);
+    QKD_DEBUG("ETSI 014: Using hostnames: master_kme=%s, slave_kme=%s", 
+              master_kme, slave_kme);
 
-    // Store in new fields
-    ctx->my_kme_hostname = OPENSSL_strdup(my_kme);
-    ctx->my_sae_id = OPENSSL_strdup(my_sae);
-    ctx->peer_sae_id = OPENSSL_strdup(peer_sae);
+    // Store hostnames
+    ctx->master_kme = OPENSSL_strdup(master_kme);
+    ctx->slave_kme = OPENSSL_strdup(slave_kme);
+    ctx->master_sae = OPENSSL_strdup(master_sae);
+    ctx->slave_sae = OPENSSL_strdup(slave_sae);
 
-    if (!ctx->my_kme_hostname || !ctx->my_sae_id || !ctx->peer_sae_id) {
-        QKD_DEBUG("ETSI 014: Failed to allocate strings");
+    if (!ctx->master_kme || !ctx->slave_kme || !ctx->master_sae || !ctx->slave_sae) {
+        QKD_DEBUG("ETSI 014: Failed to allocate KME or SAE strings");
         goto err;
     }
 
-    // Set legacy pointers for backward compatibility
-    // Both initiator and responder use the same logic now
-    ctx->source_uri = ctx->my_kme_hostname;  // Always my KME
-    ctx->sae_id = ctx->peer_sae_id;          // Always peer SAE
-    ctx->dest_uri = NULL;                     // Not used in ETSI 014
-    
-    // Also populate deprecated fields for any code that still uses them
-    ctx->master_kme = ctx->my_kme_hostname;
-    ctx->slave_kme = ctx->my_kme_hostname;
-    ctx->master_sae = ctx->is_initiator ? ctx->my_sae_id : ctx->peer_sae_id;
-    ctx->slave_sae = ctx->is_initiator ? ctx->peer_sae_id : ctx->my_sae_id;
+    // Set URIs based on role
+    if (ctx->is_initiator) {
+        ctx->source_uri = ctx->master_kme;
+        ctx->dest_uri = ctx->slave_kme;
+        ctx->sae_id = ctx->slave_sae;
+    } else {
+        ctx->source_uri = ctx->slave_kme;
+        ctx->dest_uri = ctx->master_kme;
+        ctx->sae_id = ctx->master_sae;
+    }
 #endif
 
-    QKD_DEBUG("Final configuration: source_uri=%s, sae_id=%s",
-              ctx->source_uri ? ctx->source_uri : "NULL",
-              ctx->sae_id ? ctx->sae_id : "NULL");
+    QKD_DEBUG("Final configuration: source_uri=%s, dest_uri=%s", 
+              ctx->source_uri ? ctx->source_uri : "NULL", 
+              ctx->dest_uri ? ctx->dest_uri : "NULL");
 
     return OQS_SUCCESS;
 
 err:
 #ifdef ETSI_004_API
+    // For ETSI 004: clean up directly allocated URIs
     if (ctx->source_uri) { OPENSSL_free(ctx->source_uri); ctx->source_uri = NULL; }
     if (ctx->dest_uri) { OPENSSL_free(ctx->dest_uri); ctx->dest_uri = NULL; }
 #else
-    if (ctx->my_kme_hostname) { OPENSSL_free(ctx->my_kme_hostname); ctx->my_kme_hostname = NULL; }
-    if (ctx->my_sae_id) { OPENSSL_free(ctx->my_sae_id); ctx->my_sae_id = NULL; }
-    if (ctx->peer_sae_id) { OPENSSL_free(ctx->peer_sae_id); ctx->peer_sae_id = NULL; }
+    // For ETSI 014: clean up KME/SAE strings (URIs point to these, so they'll be cleaned too)
+    if (ctx->master_kme) { OPENSSL_free(ctx->master_kme); ctx->master_kme = NULL; }
+    if (ctx->slave_kme) { OPENSSL_free(ctx->slave_kme); ctx->slave_kme = NULL; }
+    if (ctx->master_sae) { OPENSSL_free(ctx->master_sae); ctx->master_sae = NULL; }
+    if (ctx->slave_sae) { OPENSSL_free(ctx->slave_sae); ctx->slave_sae = NULL; }
     ctx->source_uri = NULL;
     ctx->dest_uri = NULL;
     ctx->sae_id = NULL;
-    ctx->master_kme = NULL;
-    ctx->slave_kme = NULL;
-    ctx->master_sae = NULL;
-    ctx->slave_sae = NULL;
 #endif
     return OQS_ERROR;
 }
