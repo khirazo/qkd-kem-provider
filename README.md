@@ -186,24 +186,45 @@ source ./set_env.sh
 ./generate_certs.sh
 ```
 
-Next, use `./scripts/oqs_env.sh` to set the environment variables to use the built OpenSSL and the QKD-KEM provider library that we have built under `_build/lib`. You have to set these variables in two different terminals.
+Next, configure the QKD environment variables. You have to set these variables in two different terminals.
 
-Then, in one terminal run the server
+#### Server Terminal (Node A)
 
 ```bash
 source ./scripts/oqs_env.sh
 export IS_TLS_SERVER=1
+
+# Using new variables (recommended)
+export QKD_MY_KME_HOSTNAME="https://kme-server.example.com"
+export QKD_MY_SAE_ID="server-sae"
+export QKD_PEER_SAE_ID="client-sae"
+export QKD_MY_CERT_PATH="/path/to/server-cert.pem"
+export QKD_MY_KEY_PATH="/path/to/server-key.pem"
+export QKD_MY_CA_CERT_PATH="/path/to/ca.pem"
+
 openssl s_server -cert <certs_dir>/rsa/rsa_2048_entity_cert.pem -key <certs_dir>/rsa/rsa_2048_entity_key.pem -www -tls1_3 -groups qkd_kyber768 -port 4433 -provider default -provider qkdkemprovider
 ```
 
-and in the other terminal run the client
+#### Client Terminal (Node B)
 
 ```bash
 source ./scripts/oqs_env.sh
+
+# Using new variables (recommended)
+export QKD_MY_KME_HOSTNAME="https://kme-client.example.com"
+export QKD_MY_SAE_ID="client-sae"
+export QKD_PEER_SAE_ID="server-sae"
+export QKD_MY_CERT_PATH="/path/to/client-cert.pem"
+export QKD_MY_KEY_PATH="/path/to/client-key.pem"
+export QKD_MY_CA_CERT_PATH="/path/to/ca.pem"
+
 openssl s_client -connect localhost:4433 -groups qkd_kyber768 -provider default -provider qkdkemprovider
 ```
 
-**Note**: the `IS_TLS_SERVER` variable is used to set the server mode (this is meant to avoid an unnecesary `get_key` call in the server side for ETSI 014 and `QKD_KEY_ID_CH=ON`).
+**Note**:
+- The `IS_TLS_SERVER` variable is used to set the server mode (this is meant to avoid an unnecessary `get_key` call in the server side for ETSI 014 and `QKD_KEY_ID_CH=ON`).
+- Each node uses its own KME (`QKD_MY_KME_HOSTNAME`) and identifies the peer via `QKD_PEER_SAE_ID`.
+- TLS client/server roles are independent of QKD initiator/responder roles.
 
 Notice that Wireshark won't be able to recognize the groups, so you will see
 
@@ -222,6 +243,40 @@ python3 ./scripts/test_qkd_kem_tls.py
 
 which is based in [open-quantum-safe/oqs-provider/scripts/test_tls_full.py](https://github.com/open-quantum-safe/oqs-provider/blob/main/scripts/test_tls_full.py) and will run the server and the client automatically.
 
+## Environment Variables Configuration
+
+### Recommended (New Variables)
+
+The QKD-KEM provider uses the following environment variables:
+
+```bash
+# Your node's information
+export QKD_MY_KME_HOSTNAME="https://my-kme.example.com"
+export QKD_MY_SAE_ID="my-sae-identifier"
+export QKD_PEER_SAE_ID="peer-sae-identifier"
+
+# Certificate paths
+export QKD_MY_CERT_PATH="/path/to/my/cert.pem"
+export QKD_MY_KEY_PATH="/path/to/my/key.pem"
+export QKD_MY_CA_CERT_PATH="/path/to/my/ca.pem"
+```
+
+### Deprecated (Backward Compatible)
+
+The following variables are deprecated but still supported:
+
+```bash
+# Old naming scheme (deprecated)
+export QKD_MASTER_KME_HOSTNAME="https://kme.example.com"
+export QKD_SLAVE_KME_HOSTNAME="https://kme.example.com"
+export QKD_MASTER_SAE="master-sae-id"
+export QKD_SLAVE_SAE="slave-sae-id"
+```
+
+**Note:** Using deprecated variables will display a warning message. Please migrate to the new `QKD_MY_*` and `QKD_PEER_*` variables.
+
+For detailed information about the refactoring, see [docs/ARCHITECTURE-REFACTORING.md](docs/ARCHITECTURE-REFACTORING.md).
+
 ## Configuring the QuKayDee environment
 
 First, follow the instructions in the [QuKayDee](https://qukaydee.com/pages/getting_started) page. At some point, you will have to download the server's certificate. This will have a name of the form
@@ -230,9 +285,26 @@ First, follow the instructions in the [QuKayDee](https://qukaydee.com/pages/gett
 account-<ACCOUNT_ID>-server-ca-qukaydee-com.crt
 ```
 
-Use this ACCOUNT_ID number for configuring your environment. When you have configured the rest of the certificates (do not forget to upload the client's root certificate to the site), save them to a folder called ```qkd_certs``` in the root's directory. You can then configure the environment by running
+Use this ACCOUNT_ID number for configuring your environment. When you have configured the rest of the certificates (do not forget to upload the client's root certificate to the site), save them to a folder called ```qkd_certs``` in the root's directory.
+
+### Using New Variables (Recommended)
 
 ```bash
-export QKD_BACKEND=qukaydee && export ACCOUNT_ID="<ACCOUNT_ID>"
+export QKD_BACKEND=qukaydee
+export ACCOUNT_ID="<ACCOUNT_ID>"
+export QKD_MY_KME_HOSTNAME="https://kme-1.acct-${ACCOUNT_ID}.etsi-qkd-api.qukaydee.com"
+export QKD_MY_SAE_ID="sae-1"
+export QKD_PEER_SAE_ID="sae-2"
+export QKD_MY_CERT_PATH="./qkd_certs/account-${ACCOUNT_ID}-sae-1-cert.pem"
+export QKD_MY_KEY_PATH="./qkd_certs/account-${ACCOUNT_ID}-sae-1-key.pem"
+export QKD_MY_CA_CERT_PATH="./qkd_certs/account-${ACCOUNT_ID}-server-ca-qukaydee-com.crt"
+source ./scripts/oqs_env.sh
+```
+
+### Using Old Variables (Deprecated)
+
+```bash
+export QKD_BACKEND=qukaydee
+export ACCOUNT_ID="<ACCOUNT_ID>"
 source ./scripts/oqs_env.sh
 ```
